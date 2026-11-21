@@ -25,6 +25,21 @@ class H(SimpleHTTPRequestHandler):
   b=json.dumps(d).encode();self.send_response(status);self.send_header('Content-Type','application/json');self.send_header('Cache-Control','no-store');self.end_headers();self.wfile.write(b)
  def do_GET(self):
   u=urlparse(self.path)
+  if re.fullmatch(r'/sprite/[0-9]+',u.path):
+   mid=u.path.rsplit('/',1)[1]
+   for url in (f'https://static.divine-pride.net/images/mob/{mid}.png',f'https://www.divine-pride.net/img/monster/original/{mid}',f'https://ratemyserver.net/monster_image/{mid}.gif'):
+    try:
+     req=urllib.request.Request(url,headers={'User-Agent':'Mozilla/5.0'})
+     with urllib.request.urlopen(req,timeout=5) as response:
+      data=response.read(2000000)
+     if data.startswith(b'GIF8'): mime='image/gif'
+     elif data.startswith(b'\x89PNG\r\n\x1a\n'): mime='image/png'
+     elif data.startswith(b'\xff\xd8'): mime='image/jpeg'
+     elif data.startswith(b'RIFF') and data[8:12]==b'WEBP': mime='image/webp'
+     else: continue
+     self.send_response(200);self.send_header('Content-Type',mime);self.send_header('Cache-Control','public, max-age=86400');self.end_headers();self.wfile.write(data);return
+    except Exception: continue
+   self.send_error(404,'Sprite unavailable');return
   if u.path!='/state':return super().do_GET()
   q=parse_qs(u.query)
   with lock:
