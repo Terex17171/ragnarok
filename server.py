@@ -27,7 +27,7 @@ class H(SimpleHTTPRequestHandler):
   u=urlparse(self.path)
   if re.fullmatch(r'/sprite/[0-9]+',u.path):
    mid=u.path.rsplit('/',1)[1]
-   for url in (f'https://static.divine-pride.net/images/mob/{mid}.png',f'https://www.divine-pride.net/img/monster/original/{mid}',f'https://ratemyserver.net/monster_image/{mid}.gif'):
+   for url in (f'https://file5s.ratemyserver.net/mobs/{mid}.gif',f'https://static.divine-pride.net/images/mob/{mid}.png',f'https://www.divine-pride.net/img/monster/original/{mid}',f'https://ratemyserver.net/monster_image/{mid}.gif'):
     try:
      req=urllib.request.Request(url,headers={'User-Agent':'Mozilla/5.0'})
      with urllib.request.urlopen(req,timeout=5) as response:
