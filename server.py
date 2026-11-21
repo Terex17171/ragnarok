@@ -1,9 +1,11 @@
 import json, random, time, threading, secrets, urllib.request, re
+from difflib import SequenceMatcher
+from functools import lru_cache
 from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 from pathlib import Path
 from urllib.parse import parse_qs,urlparse
 ROOT=Path(__file__).parent
-lock=threading.RLock(); rooms={}; monsters={}
+lock=threading.RLock(); rooms={}; monsters={}; traits={}
 # Official rAthena community database: renewal and pre-renewal union.
 def load():
  for mode in ('re','pre-re'):
@@ -11,13 +13,35 @@ def load():
   data=urllib.request.urlopen(url,timeout=40).read().decode()
   for block in re.split(r'(?m)^  - Id: ',data)[1:]:
    mid=int(block.splitlines()[0]); m=re.search(r'(?m)^    Name: (.+)$',block)
-   if m: monsters.setdefault(mid,m.group(1).strip().strip('"\''))
+   if m:
+    monsters.setdefault(mid,m.group(1).strip().strip('"\''))
+    traits.setdefault(mid,{k:v.strip() for k,v in re.findall(r"(?m)^    (Race|Element|Size|Class|Level): (.+)$",block)})
  if len(set(monsters.values()))<4: raise RuntimeError('Monster database unavailable')
+@lru_cache(maxsize=4096)
+def ranked_distractors(mid):
+ name=monsters[mid]; a=name.casefold(); words=set(re.findall(r'\w+',a)); t=traits.get(mid,{})
+ scores={}
+ for other,bname in monsters.items():
+  b=bname.casefold()
+  if a==b: continue
+  bw=set(re.findall(r'\w+',b)); u=traits.get(other,{})
+  similarity=SequenceMatcher(None,a,b).ratio()
+  score=6*similarity+5*bool(words & bw)+3*(min(len(a),len(b))>=4 and (a in b or b in a))
+  score+=sum(weight for key,weight in [('Race',1.2),('Element',0.7),('Size',0.5),('Class',0.6)] if t.get(key) and t.get(key)==u.get(key))
+  if t.get('Level','').isdigit() and u.get('Level','').isdigit(): score+=0.8/(1+abs(int(t['Level'])-int(u['Level']))/20)
+  if b not in scores or score>scores[b][0]: scores[b]=(score,bname)
+ return sorted(scores.values(),reverse=True)
+def make_options(mid):
+ ranked=ranked_distractors(mid)
+ # Prefer the closest names; vary the third distractor among near ties.
+ chosen=[name for _,name in ranked[:2]]
+ chosen.append(random.choice(ranked[2:min(5,len(ranked))])[1])
+ opts=chosen+[monsters[mid]];random.shuffle(opts);return opts
 def advance(r):
  if r['phase']=='question' and time.time()>=r['until']: r.update(phase='reveal',until=time.time()+4,winner=None)
  if r['phase']=='reveal' and time.time()>=r['until']:
   if r['round']>=r['total']: r['phase']='finished';return
-  mid=random.choice([i for i in monsters if i not in r['used']] or list(monsters));r['used'].append(mid); name=monsters[mid]; opts=random.sample(sorted(set(monsters.values())-{name}),3)+[name];random.shuffle(opts)
+  mid=random.choice([i for i in monsters if i not in r['used']] or list(monsters));r['used'].append(mid); name=monsters[mid]; opts=make_options(mid)
   r.update(phase='question',round=r['round']+1,mid=mid,options=opts,correct=opts.index(name),until=time.time()+15,wrong=[],winner=None)
 class H(SimpleHTTPRequestHandler):
  def __init__(self,*a,**k):super().__init__(*a,directory=str(ROOT),**k)
